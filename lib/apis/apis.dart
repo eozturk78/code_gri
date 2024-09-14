@@ -11,6 +11,7 @@ class Apis {
   Future login(String email, String password) async {
     String finalUrl = '$baseUrl/$serviceName/Login';
     var params = {'email': email.toString(), 'password': password.toString()};
+    print(params);
     var result = await http.post(Uri.parse(finalUrl),
         body: jsonEncode(params),
         headers: {'Content-Type': 'application/json', 'lang': lang});

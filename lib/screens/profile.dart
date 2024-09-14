@@ -122,6 +122,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   onPressed: () async {
                     SharedPreferences pref =
                         await SharedPreferences.getInstance();
+
                     await pref.clear();
                     Navigator.push(
                         context,
