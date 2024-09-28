@@ -26,12 +26,14 @@
 	<string>13</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>${PRODUCT_NAME} uses the local network to connect to the gate for open it.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Your location is required for find gates near by you</string>
+	<string>Bu uygulamanın açıkken ve arka planda konuma erişmesi gerekiyor.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
-	<string>Your location is required for find gates near by you</string>
+	<string>Bu uygulamanın arka plandayken konuma erişmesi gerekiyor.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Your location is required for find gates near by you</string>
+	<string>Bu uygulamanın arka planda konuma erişmesi gerekiyor.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -57,15 +59,5 @@
 	<true/>
 	<key>com.apple.developer.networking.wifi-info</key>
 	<true/>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>${PRODUCT_NAME} uses the local network to connect to the gate for open it.</string>
-
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Bu uygulamanın arka planda konuma erişmesi gerekiyor.</string>    
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>Bu uygulamanın arka plandayken konuma erişmesi gerekiyor.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Bu uygulamanın açıkken ve arka planda konuma erişmesi gerekiyor.</string>
-
 </dict>
 </plist>
