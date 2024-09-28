@@ -1,6 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:remote_gate_control_mobile/constants.dart';
+import 'package:code_gri/constants.dart';
 
 class SitesScreen extends StatefulWidget {
   const SitesScreen(Key? key) : super(key: key);

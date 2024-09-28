@@ -1,4 +1,4 @@
-package com.mobile.remote_gate_control_mobile
+package com.mobile.code_gri
 
 import io.flutter.embedding.android.FlutterActivity
 

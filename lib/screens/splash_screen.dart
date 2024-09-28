@@ -1,25 +1,13 @@
-// ignore_for_file: unnecessary_new, deprecated_member_use, avoid_print
-
 import 'dart:async';
-import 'dart:convert';
-import 'dart:math';
 
+import 'package:code_gri/toast.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_spinkit/flutter_spinkit.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:internet_connection_checker/internet_connection_checker.dart';
-import 'package:remote_gate_control_mobile/apis/apis.dart';
-import 'package:remote_gate_control_mobile/constants.dart';
-import 'package:remote_gate_control_mobile/screens/login.dart';
-import 'package:remote_gate_control_mobile/screens/profile.dart';
-import 'package:remote_gate_control_mobile/toast.dart';
+import 'package:code_gri/apis/apis.dart';
+import 'package:code_gri/constants.dart';
+import 'package:code_gri/screens/login.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'dart:io';
 
-import '../models/device.dart';
-import '../models/site.dart';
+import 'package:http/http.dart' as http;
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({Key? key}) : super(key: key);
@@ -28,490 +16,227 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
-  List<Site> dataList = [];
-  bool isSendRequest = false;
-  bool isSendRequestToDevice = false;
-  bool? isOpenGate;
-  bool? isDataExist;
-  Timer? _timer;
-  String stepStatusText = "";
-  var _data = null;
-  bool isConnected = true;
+  Apis apis = Apis();
+  var dataList = [];
+  var bannedList = [];
+  var token = null;
   @override
   void initState() {
     super.initState();
-    checkInternet();
+    checkToken();
   }
 
-  checkInternet() async {
-    bool result = await InternetConnectionChecker().hasConnection;
-    isConnected = result;
+  checkToken() async {
+    SharedPreferences pref = await SharedPreferences.getInstance();
+    token = pref.getString("token");
+
+    if (token == null)
+      Navigator.push(
+          context, MaterialPageRoute(builder: (context) => const Login(null)));
+
     setState(() {});
-    if (isConnected) {
-      navigateUser();
-    }
-    _listener = InternetConnectionChecker()
-        .onStatusChange
-        .listen((InternetConnectionStatus status) {
-      if (!isConnected) {
-        if (status == InternetConnectionStatus.connected) {
-          isConnected = true;
-          navigateUser();
-        } else {
-          isConnected = false;
-        }
+  }
+
+  int domainCount = 0,
+      bannedDomainCount = 0,
+      notBannedDomainCount = 0,
+      checkedDomainCount = 0;
+  var isLocationFailed = false;
+  /*Future<void> makeRequest(String domain) async {
+    try {
+      final response = await http
+          .get(Uri.parse(domain))
+          .timeout(Duration(seconds: 30)); // Set a timeout of 10 seconds
+      print("Domain == " + domain + " Resp ==" + response.body.toString());
+      if (response.body.toString().contains("Code")) {
+        notBannedDomainCount++;
+      } else {
+        bannedDomainCount++;
+        addDomainToBanned(domain);
       }
+      checkedDomainCount++;
+      setState(() {});
+    } on TimeoutException catch (e) {
+      checkedDomainCount++;
+      bannedDomainCount++;
+      addDomainToBanned(domain);
+      setState(() {});
+    } catch (e) {
+      checkedDomainCount++;
+      bannedDomainCount++;
+      addDomainToBanned(domain);
+      setState(() {});
+    }
+  }*/
+  Future<void> sendRequestsSequentially(List<dynamic> domains) async {
+    for (String domain in domains) {
+      var response = null;
+      print(domain);
+      try {
+        response = await http
+            .get(Uri.parse('http://${domain}'))
+            .timeout(Duration(seconds: 30)); // Set a timeout of 10 seconds
+        print(response.body!.toString());
+        if (response.body!.toString().length > 5) {
+          notBannedDomainCount++;
+        } else {
+          bannedDomainCount++;
+          addDomainToBanned(domain);
+        }
+        checkedDomainCount++;
+        setState(() {});
+      } on TimeoutException catch (e) {
+        checkedDomainCount++;
+        bannedDomainCount++;
+        addDomainToBanned(domain);
+        setState(() {});
+      } catch (e) {
+        checkedDomainCount++;
+        if (e.toString().indexOf("Failed host lookup:") != -1)
+          bannedDomainCount++;
+        else
+          notBannedDomainCount++;
+        addDomainToBanned(domain);
+        setState(() {});
+      }
+    }
+  }
+
+  checkDomains() async {
+    bannedDomainCount = 0;
+    notBannedDomainCount = 0;
+    checkedDomainCount = 0;
+    dataList.clear();
+    setState(() {});
+    await apis.getAllDomains().then((value) {
+      dataList = value['domains'];
+      domainCount = dataList.length;
+      setState(() {});
+      if (dataList.length == 0) {
+        showToast("Domains not found");
+      }
+      sendRequestsSequentially(dataList);
+    });
+  }
+
+  addDomainToBanned(a) {
+    var domainArr = a.toString().split('.');
+    var bannedUrl = "";
+    if (domainArr.length > 1) {
+      bannedUrl = "${domainArr[1]}.${domainArr[2]}";
+      if (bannedList.where((a) => a == bannedUrl).isEmpty) {
+        bannedList.add(bannedUrl);
+      }
+    } else if (bannedList.where((d) => d == a).isEmpty) {
+      bannedList.add(a);
+    }
+  }
+
+  sendDomains() async {
+    await apis.sendBanList(bannedList).then((value) {
+      showToast("Saved successfully");
+      bannedDomainCount = 0;
+      notBannedDomainCount = 0;
+      checkedDomainCount = 0;
+      domainCount = 0;
       setState(() {});
     });
   }
 
-  late final StreamSubscription<InternetConnectionStatus> _listener;
-  InternetConnectionStatus? _internetStatus;
-  navigateUser() async {
-    isSendRequestToDevice = true;
-    SharedPreferences pref = await SharedPreferences.getInstance();
-    if (pref.getString("token") == null ||
-        pref.getString("token")?.isEmpty == true) {
-      // ignore: use_build_context_synchronously
-      Navigator.push(
-          context, MaterialPageRoute(builder: (context) => const Login(null)));
-    } else {
-      if (pref.getString('sites') != null) {
-        String? s = pref.getString('sites');
-        prepareScreen(jsonDecode(s!));
-      } else {
-        setState(() {
-          isDataExist = false;
-        });
-      }
-    }
-  }
-
-  prepareScreen(data) {
-    if (data != null) {
-      print(data);
-      var records = (data as List).map((e) => Site.fromJson(e)).toList();
-      if (records.isNotEmpty || records[0].Devices.length > 1) {
-        dataList = records.toList();
-        setState(() {
-          isDataExist = true;
-          isSendRequestToDevice = false;
-        }); /* */
-      } else {
-        setState(() {
-          isDataExist = false;
-          isSendRequestToDevice = false;
-        });
-      }
-    } else {
-      setState(() {
-        isDataExist = false;
-        isSendRequestToDevice = false;
-      });
-    }
-  }
-
-  saveLocation(String? siteId) async {
-    Apis apis = Apis();
-    SharedPreferences pref = await SharedPreferences.getInstance();
-    apis
-        .sendOpenDoorRequest(
-            locationData?.latitude, locationData?.longitude, siteId)
-        .then((value) async {
-      if (value['sites'] != null) {
-        pref.setString('sites', jsonEncode(value['sites']));
-      }
-      Future.delayed(Duration(seconds: 1), () {
-        SystemNavigator.pop();
-        if (Platform.isIOS) exit(0);
-      });
-    }).catchError((err) {
-      if (err is TimeoutException) {
-        Navigator.push(context,
-            MaterialPageRoute(builder: (context) => const Login(null)));
-      }
-    });
-  }
-
-  double calculateDistance(lat1, lon1, lat2, lon2) {
-    var p =
-        0.017453292519943295; //conversion factor from radians to decimal degrees, exactly math.pi/180
-    var c = cos;
-    var a = 0.5 -
-        c((lat2 - lat1) * p) / 2 +
-        c(lat1 * p) * c(lat2 * p) * (1 - c((lon2 - lon1) * p)) / 2;
-    var radiusOfEarth = 6371;
-    return radiusOfEarth * 2 * asin(sqrt(a)) * 1000;
-  }
-
-  Position? locationData;
-  sendRequestToDevice(Device data) async {
-    setState(() {
-      isSendRequestToDevice = true;
-      stepStatusText = "Konum Alınıyor.";
-    });
-    try {
-      locationData = await Geolocator.getCurrentPosition(
-        timeLimit: Duration(seconds: 5),
-        desiredAccuracy: LocationAccuracy.low,
-      );
-    } catch (e) {
-      print(e.toString());
-      setState(() {
-        isOpenGate = false;
-        isSendRequest = false;
-        isSendRequestToDevice = false;
-        isLocationFailed = true;
-      });
-      showToast("Konum alınamadı");
-      return;
-    }
-    if (data.lat == 1.2 ||
-        data.long == 1.2 ||
-        data.lat == null ||
-        data.long == null) showToast("Bu cihaz aktif değil.");
-    var dist = calculateDistance(
-        locationData?.latitude, locationData?.longitude, data.lat, data.long);
-    if (dist < 51) {
-      if (data.HexCode == null) {
-        showToast("Bir hata oluştu");
-        setState(() {
-          isOpenGate = false;
-          isSendRequest = false;
-          isSendRequestToDevice = false;
-        });
-        return;
-      }
-      sendToBackend(data);
-    } else if (data.remoteControl == true) {
-      showDialog(context: context, builder: (context) => onOpenImage(context))
-          .then((value) {
-        if (value == 1) {
-          sendToBackend(data);
-        } else {}
-      });
-    } else {
-      showToast("Cihazınıza uzaktasınız. ");
-    }
-  }
-
-  bool isSendAgain = true;
-  sendToBackend(Device data) async {
-    setState(() {
-      isSendRequestToDevice = true;
-      stepStatusText = "Kapı açma sinyali gönderiliyor.";
-    });
-    try {
-      Apis apis = Apis();
-      await apis
-          .sendRequestTeltonika(data.SerialNumber, data.HexCode!)
-          .then((value) {
-        saveLocation(data.SiteId);
-        setState(() {
-          isOpenGate = true;
-          isSendRequest = true;
-          isSendRequestToDevice = false;
-          isLocationFailed = false;
-        });
-      }).timeout(Duration(seconds: 2));
-    } on TimeoutException catch (_) {
-      setState(() {
-        isOpenGate = false;
-        isSendRequest = true;
-        isSendRequestToDevice = false;
-        isLocationFailed = false;
-      });
-    }
-  }
-
-  Widget onOpenImage(BuildContext context) {
-    return AlertDialog(
-      insetPadding: EdgeInsets.symmetric(
-        horizontal: 0,
-        vertical: 0,
-      ),
-      contentPadding: EdgeInsets.symmetric(
-        horizontal: 0,
-        vertical: 0,
-      ),
-      content: StatefulBuilder(
-        builder: (BuildContext context, setState) {
-          return SizedBox(
-            height: 150,
-            width: MediaQuery.of(context).size.width * 0.9,
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  Text(
-                      "Kapınıza uzak mesafedesiniz, yine de açmak istediğinizden emin misiniz?"),
-                  SizedBox(
-                    height: 10,
-                  ),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: kPrimaryColor,
-                        ),
-                        onPressed: () {
-                          Navigator.of(context).pop(1);
-                        },
-                        child: Text("Eminim Kapıyı Aç"),
-                      ),
-                      SizedBox(
-                        width: 10,
-                      ),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey,
-                        ),
-                        onPressed: () {
-                          SystemNavigator.pop();
-                        },
-                        child: const Text("Uygulamayı Kapat"),
-                      ),
-                    ],
-                  )
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  var isLocationFailed = false;
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AE Smart Systems'),
+        title: const Text('Code Gri'),
         backgroundColor: kPrimaryColor,
         centerTitle: true,
         automaticallyImplyLeading: false,
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Padding(
-              padding: EdgeInsets.all(25),
+      body: token != null
+          ? SingleChildScrollView(
               child: Column(
-                children: [Image.asset("assets/images/logo-big.PNG")],
-              ),
-            ),
-            if (!isConnected)
-              const Padding(
-                padding: EdgeInsets.all(10),
-                child: Center(
-                  child: Text(
-                    "Uygulamak kullanmak için internet bağlantısına ihtiyacınız var",
-                    style: TextStyle(fontSize: 18),
-                  ),
-                ),
-              ),
-            if (isLocationFailed)
-              Padding(
-                padding: EdgeInsets.all(10),
-                child: Column(
-                  children: [
-                    Text("Konumunuz alınamadı"),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                          minimumSize: const Size.fromHeight(40),
-                          backgroundColor:
-                              kPrimaryColor // fromHeight use double.infinity as width and 40 is the height
-                          ),
-                      onPressed: () {
-                        _timer?.cancel();
-                        setState(() {
-                          isSendRequest = false;
-                          isSendRequestToDevice = true;
-                          isLocationFailed = false;
-                        });
-                        sendRequestToDevice(_data.Devices[0]);
-                      },
-                      child: const Text("Tekrar istek gönder"),
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.all(25),
+                    child: Column(
+                      children: [
+                        Image.asset("assets/images/logo-big.png"),
+                        Text(
+                            "To check the domains, please wait by pressing the button below."),
+                      ],
                     ),
-                    if (isDataExist == true)
-                      ElevatedButton(
+                  ),
+                  if (checkedDomainCount < domainCount)
+                    const SizedBox(
+                      width: 30.0, // Set the desired width
+                      height: 30.0, // Set the desired height
+                      child: CircularProgressIndicator(),
+                    ),
+                  const SizedBox(
+                    height: 10,
+                  ),
+                  Text("${checkedDomainCount}/${domainCount} Checked"),
+                  const SizedBox(
+                    height: 5,
+                  ),
+                  Text("${bannedDomainCount} Banned"),
+                  const SizedBox(
+                    height: 5,
+                  ),
+                  Text("${notBannedDomainCount} Clean"),
+                  const SizedBox(
+                    height: 15,
+                  ),
+                  if (domainCount == 0 || checkedDomainCount == domainCount)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            minimumSize: const Size.fromHeight(40),
                             backgroundColor: kPrimaryColor,
                           ),
                           onPressed: () {
-                            _timer?.cancel();
-                            setState(() {
-                              isSendRequest = false;
-                              isLocationFailed = false;
-                            });
+                            checkDomains();
                           },
-                          child: const Text("Listeye dön")),
-                    SizedBox(
-                      height: 40,
-                    ),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(40),
-                        backgroundColor: Colors.grey,
-                      ),
-                      onPressed: () {
-                        SystemNavigator.pop();
-                      },
-                      child: const Text("Uygulamayı Kapat"),
-                    ),
-                  ],
-                ),
-              ),
-            if (isSendRequestToDevice)
-              Column(
-                children: [
-                  const SpinKitCircle(
-                    color: kPrimaryColor,
-                    size: 50.0,
-                  ),
-                  // ignore: unnecessary_string_interpolations
-                  Text("$stepStatusText")
+                          child: Text("Check"),
+                        ),
+                        SizedBox(
+                          width: 10,
+                        ),
+                        if (bannedDomainCount > 0)
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: kPrimaryColor,
+                            ),
+                            onPressed: () {
+                              sendDomains();
+                            },
+                            child: Text("Send"),
+                          )
+                      ],
+                    )
                 ],
               ),
-            if (!isSendRequestToDevice &&
-                isDataExist == true &&
-                !isSendRequest &&
-                isConnected &&
-                !isLocationFailed)
-              Padding(
-                padding: const EdgeInsets.all(5),
-                child: Column(
-                  children: [
-                    ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: dataList.length,
-                        itemBuilder: (BuildContext context, int index) {
-                          return Column(
-                            children: [
-                              ListView.builder(
-                                shrinkWrap: true,
-                                itemCount: dataList[index].Devices.length,
-                                itemBuilder: (BuildContext context, int j) {
-                                  return Container(
-                                    margin: new EdgeInsets.only(bottom: 5),
-                                    child: ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        minimumSize: const Size.fromHeight(60),
-                                        backgroundColor: kPrimaryColor,
-                                      ),
-                                      onPressed: () {
-                                        _timer?.cancel();
-                                        _data = dataList[index];
-                                        sendRequestToDevice(
-                                            dataList[index].Devices[j]);
-                                      },
-                                      child: Text(
-                                        dataList[index].Devices[j].Name,
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          );
-                        }),
-                  ],
-                ),
-              )
-            else if (!isSendRequestToDevice && isSendRequest)
-              Padding(
-                padding: const EdgeInsets.all(15),
-                child: Center(
-                  child: Column(
-                    children: [
-                      if (isOpenGate == true)
-                        Column(
-                          children: [
-                            Icon(
-                              Icons.check_circle,
-                              size: 100.0,
-                              color: Colors.green,
-                            ),
-                            Text(
-                              "Kapı açma sinyali gönderildi.",
-                              style: TextStyle(
-                                  color: Colors.green,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        )
-                      else
-                        Column(
-                          children: [
-                            Icon(
-                              Icons.remove_circle_outline_sharp,
-                              size: 100.0,
-                              color: Colors.red,
-                            ),
-                            Text(
-                              "Kapı açılamadı.",
-                              style: TextStyle(
-                                  color: Colors.red,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold),
-                            ),
-                            ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(40),
-                                  backgroundColor: kPrimaryColor,
-                                ),
-                                onPressed: () {
-                                  _timer?.cancel();
-                                  setState(() {
-                                    isSendRequest = false;
-                                    isLocationFailed = false;
-                                  });
-                                },
-                                child: const Text("Listeye dön")),
-                          ],
-                        ),
-                      const SizedBox(
-                        height: 50,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            if (!isSendRequestToDevice)
-              TextButton(
-                style: TextButton.styleFrom(
-                  textStyle: const TextStyle(fontSize: 12),
-                ),
-                onPressed: () async {
-                  const url = 'https://aesmartsystems.com'; //Twitter's URL
-                  await launch(url);
-                },
-                child: const Text(
-                    'Hizmetlerimiz hakkında bilgi almak için tıklayın'),
-              ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        child: const Icon(Icons.settings),
-        backgroundColor: kPrimaryColor,
-        onPressed: () {
-          Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: ((context) => const ProfileScreen(null))))
-              .then((value) {
-            navigateUser();
-          });
-        },
-      ),
+            )
+          : Image.asset("assets/images/logo-big.png"),
+      floatingActionButton: token != null
+          ? FloatingActionButton(
+              child: const Icon(Icons.logout),
+              backgroundColor: kPrimaryColor,
+              onPressed: () async {
+                SharedPreferences pref = await SharedPreferences.getInstance();
+                pref.clear();
+                Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: ((context) => const Login(null))))
+                    .then((value) {});
+              },
+            )
+          : Text(""),
     );
   }
 }
